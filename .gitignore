@@ -1,0 +1,8 @@
+.snakemake/
+bacteria_viral_genomes/
+bacteria_viral_genomes.fna
+hiseq_reads/
+miseq_reads/
+nanopore_reads/
+human_genome/
+indexes/

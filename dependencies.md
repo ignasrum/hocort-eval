@@ -1,0 +1,20 @@
+conda:
+	insilicoseq
+	bowtie2
+	cutadapt
+	snakemake
+	samtools
+	pysam
+	hisat2
+	kraken2
+	bwa-mem2
+	bbmap
+	minimap2
+	nanosim
+	sra-tools
+pip:
+	mlxtend
+	numpy
+	matplotlib
+	fastq-compare
+	fastq-mixshuffle
