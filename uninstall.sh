@@ -1,3 +1,3 @@
 #!/bin/bash
 
-conda remove --name hocort --all
+conda remove --name hocort-eval --all
