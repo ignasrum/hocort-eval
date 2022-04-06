@@ -1,4 +1,5 @@
 .snakemake/
+deconseq-standalone-0.4.3/
 bacteria_viral_genomes/
 bacteria_viral_genomes.fna
 hiseq_reads/

@@ -12,6 +12,7 @@ conda:
 	minimap2
 	nanosim
 	sra-tools
+	perl
 pip:
 	mlxtend
 	numpy

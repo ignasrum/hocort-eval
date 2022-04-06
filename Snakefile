@@ -1,18 +1,8 @@
 SEEDS=["123", "124", "125", "126", "127", "128", "129"]
-UNPAIRED_TOOLS=["Minimap2_nanopore", "Kraken2Minimap2_nanopore"]
-PAIRED_TOOLS=["Bowtie2_end-to-end", "Bowtie2_local", "HISAT2", "Kraken2", "BBMap", "Kraken2Bowtie2", "Kraken2HISAT2", "Bowtie2Bowtie2", "Bowtie2HISAT2", "Minimap2_illumina"]
+UNPAIRED_TOOLS=["Minimap2_nanopore", "Kraken2Minimap2_nanopore", "Kraken2"]
+PAIRED_TOOLS=["Bowtie2_end-to-end", "Bowtie2_local", "Bowtie2_ad_hoc_un_conc", "HISAT2", "Kraken2", "BWA_MEM2", "BBMap", "Kraken2Bowtie2", "Kraken2HISAT2", "Bowtie2Bowtie2", "Bowtie2HISAT2", "Minimap2_illumina"]
 MICROBIOME_TYPES=["gut", "oral"]
 
-"""
-# draw distribution plot with matplotlib (runtime)
-rule draw_distribution_runtime:
-    input:
-        results="{tech}_reads/{seed}/results/{tool}/{type}_microbiome.txt"
-    output:
-        ""
-    run:
-        import json
-"""
 
 rule all:
     threads:
@@ -21,11 +11,206 @@ rule all:
         expand("hiseq_reads/{seed}/results/{tool}/{type}_microbiome_confusion_matrix_paired.png", seed=SEEDS, tool=PAIRED_TOOLS, type=MICROBIOME_TYPES),
         expand("miseq_reads/{seed}/results/{tool}/{type}_microbiome_confusion_matrix_paired.png", seed=SEEDS, tool=PAIRED_TOOLS, type=MICROBIOME_TYPES),
         expand("nanopore_reads/{seed}/results/{tool}/{type}_microbiome_confusion_matrix_unpaired.png", seed=SEEDS, tool=UNPAIRED_TOOLS, type=MICROBIOME_TYPES),
-        expand("hiseq_reads/{type}_microbiome_paired_final.txt", type=MICROBIOME_TYPES),
-        expand("miseq_reads/{type}_microbiome_paired_final.txt", type=MICROBIOME_TYPES),
-        expand("nanopore_reads/{type}_microbiome_unpaired_final.txt", type=MICROBIOME_TYPES)
+        expand("hiseq_reads/{type}_microbiome_paired_table.txt", type=MICROBIOME_TYPES),
+        expand("miseq_reads/{type}_microbiome_paired_table.txt", type=MICROBIOME_TYPES),
+        expand("nanopore_reads/{type}_microbiome_unpaired_table.txt", type=MICROBIOME_TYPES),
+        "hiseq_reads/bowtie2_endtoend_deconseq_comparison.txt"
 
-rule compute_all_means:
+rule bowtie2_endtoend_deconseq_comparison:
+    threads:
+        workflow.cores
+    params:
+        deconseq_benchmark="hiseq_reads/123/results/deconseq_gut_unpaired/gut_microbiome_benchmark_unpaired.txt",
+        bowtie2_benchmark="hiseq_reads/123/results/Bowtie2_end-to-end/gut_microbiome_benchmark_unpaired.txt"
+    input:
+        results_deconseq="hiseq_reads/123/results/deconseq_gut_unpaired/gut_microbiome_unpaired.txt",
+        results_bowtie2="hiseq_reads/123/results/Bowtie2_end-to-end/gut_microbiome_unpaired.txt"
+    output:
+        results="hiseq_reads/bowtie2_endtoend_deconseq_comparison.txt"
+    run:
+        import json
+        def parse(tool):
+            path_results = f'hiseq_reads/123/results/{tool}/gut_microbiome_unpaired.txt'
+            path_benchmark = f'hiseq_reads/123/results/{tool}/gut_microbiome_benchmark_unpaired.txt'
+            with open(path_results, 'r') as f:
+                data = json.loads(f.readlines()[0])
+            with open(path_benchmark, 'r') as f:
+                bits = f.readlines()[1].split()
+            data['runtime'] = float(bits[0])
+            return data
+        def get_results(tools):
+            results = {}
+            for tool in tools:
+                data = parse(tool)
+                results[tool] = data
+            return results
+        results = get_results(['Bowtie2_end-to-end',
+                               'deconseq_gut_unpaired'])
+        with open(output.results, "w") as f:
+            f.write(json.dumps(results))
+
+rule draw_latex_table:
+    threads:
+        workflow.cores
+    input:
+        hiseq_gut="hiseq_reads/gut_microbiome_paired_computed.txt",
+        hiseq_oral="hiseq_reads/oral_microbiome_paired_computed.txt",
+        miseq_gut="miseq_reads/gut_microbiome_paired_computed.txt",
+        miseq_oral="miseq_reads/oral_microbiome_paired_computed.txt",
+        nanopore_gut="nanopore_reads/gut_microbiome_unpaired_computed.txt",
+        nanopore_oral="nanopore_reads/oral_microbiome_unpaired_computed.txt"
+    output:
+        hiseq_gut="hiseq_reads/gut_microbiome_paired_table.txt",
+        hiseq_oral="hiseq_reads/oral_microbiome_paired_table.txt",
+        miseq_gut="miseq_reads/gut_microbiome_paired_table.txt",
+        miseq_oral="miseq_reads/oral_microbiome_paired_table.txt",
+        nanopore_gut="nanopore_reads/gut_microbiome_unpaired_table.txt",
+        nanopore_oral="nanopore_reads/oral_microbiome_unpaired_table.txt"
+    run:
+        import json
+        import decimal
+        decimal.getcontext().rounding = decimal.ROUND_DOWN
+        def build_tables(path):
+            limits = {}
+            with open(path, 'r') as f:
+                data = json.loads(f.readlines()[0])
+                for tool in data:
+                    for header in data[tool]:
+                        if header not in limits: limits[header] = {}
+                        for elem in data[tool][header]:
+                            val = data[tool][header][elem]
+                            if elem not in limits[header]:
+                                limits[header][elem] = {}
+                                limits[header][elem]['max'] = val
+                                limits[header][elem]['min'] = val
+                            if limits[header][elem]['max'] < val: limits[header][elem]['max'] = val
+                            if limits[header][elem]['min'] > val: limits[header][elem]['min'] = val
+            tables = {'table_headers': {},
+                      'tables': {}}
+            with open(path, 'r') as f:
+                data = json.loads(f.readlines()[0])
+                # extract header
+                first = list(data)[0]
+                for header in data[first]:
+                    tables['table_headers'][header] = 'Pipeline'
+                    tables['tables'][header] = ''
+                    for elem in data[first][header]:
+                        tables['table_headers'][header] += f' & {header}\_{elem}'
+                    tables['table_headers'][header] += ' \\\ \n'
+                for tool in data:
+                    for header in data[tool]:
+                        tables['tables'][header] += tool.replace('_', '\_')
+                        for elem in data[tool][header]:
+                            # if element is largest or smallest add color
+                            val = data[tool][header][elem]
+                            decimals = 4
+                            # truncate
+                            rounded_val = float(round(decimal.Decimal(val), decimals))
+                            rounded_max = float(round(decimal.Decimal(limits[header][elem]['max']), decimals))
+                            rounded_min = float(round(decimal.Decimal(limits[header][elem]['min']), decimals))
+                            # round
+                            #rounded_val = round(val, decimals)
+                            #rounded_max = round(limits[header][elem]['max'], decimals)
+                            #rounded_min = round(limits[header][elem]['min'], decimals)
+                            if rounded_val == rounded_max:
+                                string = ' & ' + '\cellcolor{cyan!35}' + str(rounded_val)
+                            elif rounded_val == rounded_min:
+                                string = ' & ' + '\cellcolor{red!35}' + str(rounded_val)
+                            else:
+                                string = f' & {rounded_val}'
+                            tables['tables'][header] += string
+                        tables['tables'][header] += ' \\\ \n'
+            return tables
+        def write_to_file(in_path, out_path):
+            tables = build_tables(in_path)
+            with open(out_path, 'w') as f:
+                for header in tables['table_headers']:
+                    f.write(f'{header}:\n')
+                    f.write(tables['table_headers'][header])
+                    f.write(tables['tables'][header])
+                    f.write('\n')
+        write_to_file(input.hiseq_gut, output.hiseq_gut)
+        write_to_file(input.hiseq_oral, output.hiseq_oral)
+        write_to_file(input.miseq_gut, output.miseq_gut)
+        write_to_file(input.miseq_oral, output.miseq_oral)
+        write_to_file(input.nanopore_gut, output.nanopore_gut)
+        write_to_file(input.nanopore_oral, output.nanopore_oral)
+
+rule compute_all:
+    threads:
+        workflow.cores
+    input:
+        hiseq=expand("hiseq_reads/{type}_microbiome_paired_parsed.txt", type=MICROBIOME_TYPES),
+        miseq=expand("miseq_reads/{type}_microbiome_paired_parsed.txt", type=MICROBIOME_TYPES),
+        nanopore=expand("nanopore_reads/{type}_microbiome_unpaired_parsed.txt", type=MICROBIOME_TYPES)
+    output:
+        hiseq_gut="hiseq_reads/gut_microbiome_paired_computed.txt",
+        hiseq_oral="hiseq_reads/oral_microbiome_paired_computed.txt",
+        miseq_gut="miseq_reads/gut_microbiome_paired_computed.txt",
+        miseq_oral="miseq_reads/oral_microbiome_paired_computed.txt",
+        nanopore_gut="nanopore_reads/gut_microbiome_unpaired_computed.txt",
+        nanopore_oral="nanopore_reads/oral_microbiome_unpaired_computed.txt"
+    run:
+        import json
+        import numpy as np
+        # read data from files
+        def parse(tech, type, paired_unpaired):
+            path = f'{tech}_reads/{type}_microbiome_{paired_unpaired}_parsed.txt'
+            with open(path, 'r') as f:
+                data = json.loads(f.readlines()[0])
+            return data
+        # calculate means, averages
+        def compute_vals(data):
+            out = {}
+            for d in data:
+                arr = np.array(data[d])
+                mean = np.mean(arr).item()
+                std = np.std(arr).item()
+                median = np.median(arr).item()
+                min = np.amin(arr).item()
+                max = np.amax(arr).item()
+                out[d] = {'mean': mean,
+                          'std': std,
+                          'median': median,
+                          'min': min,
+                          'max': max}
+            return out
+        def compute(tech, tools, paired_unpaired):
+            out = {}
+            for microbiome_type in MICROBIOME_TYPES:
+                tech_data = parse(tech, microbiome_type, paired_unpaired)
+                out[microbiome_type] = {}
+                for tool in tools:
+                    data = tech_data[tool]
+                    final = compute_vals(data)
+                    out[microbiome_type][tool] = final
+            return out
+        def compute_all():
+            out = {}
+            hiseq = compute('hiseq', PAIRED_TOOLS, 'paired')
+            out['hiseq'] = hiseq
+            miseq = compute('miseq', PAIRED_TOOLS, 'paired')
+            out['miseq'] = miseq
+            nanopore = compute('nanopore', UNPAIRED_TOOLS, 'unpaired')
+            out['nanopore'] = nanopore
+            return out
+        final = compute_all()
+        # write to output file
+        with open(output.hiseq_gut, 'w') as f:
+            f.write(json.dumps(final['hiseq']['gut']))
+        with open(output.hiseq_oral, 'w') as f:
+            f.write(json.dumps(final['hiseq']['oral']))
+        with open(output.miseq_gut, 'w') as f:
+            f.write(json.dumps(final['miseq']['gut']))
+        with open(output.miseq_oral, 'w') as f:
+            f.write(json.dumps(final['miseq']['oral']))
+        with open(output.nanopore_gut, 'w') as f:
+            f.write(json.dumps(final['nanopore']['gut']))
+        with open(output.nanopore_oral, 'w') as f:
+            f.write(json.dumps(final['nanopore']['oral']))
+
+# retrieve all datapoints
+rule parse_all:
     threads:
         workflow.cores
     input:
@@ -33,12 +218,12 @@ rule compute_all_means:
         miseq=expand("miseq_reads/{seed}/results/{tool}/{type}_microbiome_paired.txt", seed=SEEDS, tool=PAIRED_TOOLS, type=MICROBIOME_TYPES),
         nanopore=expand("nanopore_reads/{seed}/results/{tool}/{type}_microbiome_unpaired.txt", seed=SEEDS, tool=UNPAIRED_TOOLS, type=MICROBIOME_TYPES)
     output:
-        hiseq_gut="hiseq_reads/gut_microbiome_paired_final.txt",
-        hiseq_oral="hiseq_reads/oral_microbiome_paired_final.txt",
-        miseq_gut="miseq_reads/gut_microbiome_paired_final.txt",
-        miseq_oral="miseq_reads/oral_microbiome_paired_final.txt",
-        nanopore_gut="nanopore_reads/gut_microbiome_unpaired_final.txt",
-        nanopore_oral="nanopore_reads/oral_microbiome_unpaired_final.txt"
+        hiseq_gut="hiseq_reads/gut_microbiome_paired_parsed.txt",
+        hiseq_oral="hiseq_reads/oral_microbiome_paired_parsed.txt",
+        miseq_gut="miseq_reads/gut_microbiome_paired_parsed.txt",
+        miseq_oral="miseq_reads/oral_microbiome_paired_parsed.txt",
+        nanopore_gut="nanopore_reads/gut_microbiome_unpaired_parsed.txt",
+        nanopore_oral="nanopore_reads/oral_microbiome_unpaired_parsed.txt"
     run:
         import json
         import numpy as np
@@ -63,32 +248,15 @@ rule compute_all_means:
                 for h in header:
                     out[h].append(data[h])
             return out
-        # calculate means, averages
-        def compute_vals(data):
-            out = {}
-            for d in data:
-                arr = np.array(data[d])
-                mean = np.mean(arr).item()
-                std = np.std(arr).item()
-                avg = np.average(arr).item()
-                min = np.amin(arr).item()
-                max = np.amax(arr).item()
-                out[d] = {'mean': mean,
-                          'std': std,
-                          'avg': avg,
-                          'min': min,
-                          'max': max}
-            return out
         def compute(tech, tools, paired_unpaired):
             out = {}
             for microbiome_type in MICROBIOME_TYPES:
                 out[microbiome_type] = {}
                 for tool in tools:
                     data = parse_tool(tech, SEEDS, tool, microbiome_type, paired_unpaired)
-                    final = compute_vals(data)
-                    out[microbiome_type][tool] = final
+                    out[microbiome_type][tool] = data
             return out
-        def compute_all():
+        def parse_all():
             out = {}
             hiseq = compute('hiseq', PAIRED_TOOLS, 'paired')
             out['hiseq'] = hiseq
@@ -97,8 +265,7 @@ rule compute_all_means:
             nanopore = compute('nanopore', UNPAIRED_TOOLS, 'unpaired')
             out['nanopore'] = nanopore
             return out
-        final = compute_all()
-        # write to output file
+        final = parse_all()
         with open(output.hiseq_gut, 'w') as f:
             f.write(json.dumps(final['hiseq']['gut']))
         with open(output.hiseq_oral, 'w') as f:
@@ -162,8 +329,8 @@ rule fastq_compare:
         # if all reads of one class were removed, set to 0 (no remaining)
         if 'human' not in entries2: entries2['human'] = 0
         if 'other' not in entries2: entries2['other'] = 0
-        total_human = entries1['human'] + entries2['human']
-        total_other = entries1['other'] + entries2['other']
+        total_human = entries1['human']
+        total_other = entries1['other']
         tp = entries1['human'] - entries2['human']
         fp = entries1['other'] - entries2['other']
         tn = entries2['other']
@@ -380,7 +547,7 @@ rule hocort_map_Kraken2_paired:
 rule hocort_map_Kraken2_unpaired:
     input:
         "indexes/Kraken2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq"
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Kraken2/{type}_microbiome_clean_1_unpaired.fastq.gz"
     threads:
@@ -528,6 +695,8 @@ rule hocort_map_Bowtie2_paired:
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Bowtie2_{mode}/{type}_microbiome_clean_1_paired.fastq.gz"
+    wildcard_constraints:
+        mode='|'.join(['end-to-end', 'local'])
     threads:
         workflow.cores
     benchmark:
@@ -543,6 +712,8 @@ rule hocort_map_Bowtie2_unpaired:
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Bowtie2_{mode}/{type}_microbiome_clean_1_unpaired.fastq.gz"
+    wildcard_constraints:
+        mode='|'.join(['end-to-end', 'local'])
     threads:
         workflow.cores
     benchmark:
@@ -550,6 +721,127 @@ rule hocort_map_Bowtie2_unpaired:
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_{wildcards.mode} && "
         "hocort map Bowtie2 -m {wildcards.mode} -t {workflow.cores} -x indexes/Bowtie2/human -i {input.R1} -o {output.R1}"
+
+rule map_Bowtie2_ad_hoc_un_conc_paired:
+    input:
+        "indexes/Bowtie2/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_un_conc/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/Bowtie2_ad_hoc_un_conc/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_ad_hoc_un_conc && "
+        "bowtie2 -x indexes/Bowtie2/human -p {workflow.cores} -1 {input.R1} -2 {input.R2} --un-conc-gz bowtie2_clean_temp > /dev/null && "
+        "mv bowtie2_clean_temp.1 {output.R1} && "
+        "rm bowtie2_clean_temp.2"
+
+rule map_Bowtie2_ad_hoc_end_to_end_paired:
+    params:
+        R2="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_end_to_end/{type}_microbiome_clean_2_paired.fastq.gz"
+    input:
+        "indexes/Bowtie2/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_end_to_end/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/Bowtie2_ad_hoc_end_to_end/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_ad_hoc_end_to_end && "
+        "bowtie2 -x indexes/Bowtie2/human -p {workflow.cores} -1 {input.R1} -2 {input.R2} --end-to-end | samtools fastq --threads {workflow.cores} -N -f 13 -1 {output.R1} -2 {params.R2} - && "
+        "rm {params.R2}"
+
+rule map_Bowtie2_ad_hoc_local_paired:
+    params:
+        R2="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_local/{type}_microbiome_clean_2_paired.fastq.gz"
+    input:
+        "indexes/Bowtie2/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_local/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/Bowtie2_ad_hoc_local/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_ad_hoc_local && "
+        "bowtie2 -x indexes/Bowtie2/human -p {workflow.cores} -1 {input.R1} -2 {input.R2} --local | samtools fastq --threads {workflow.cores} -N -f 13 -1 {output.R1} -2 {params.R2} - && "
+        "rm {params.R2}"
+
+rule map_BWA_MEM2_ad_hoc_paired:
+    params:
+        R2="{tech}_reads/{seed}/results/BWA_MEM2_ad_hoc/{type}_microbiome_clean_2_paired.fastq.gz"
+    input:
+        "indexes/BWA_MEM2/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/BWA_MEM2_ad_hoc/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/BWA_MEM2_ad_hoc/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BWA_MEM2_ad_hoc && "
+        "bwa-mem2 mem -t {workflow.cores} indexes/BWA_MEM2/human {input.R1} {input.R2} | samtools fastq --threads {workflow.cores} -N -f 13 -1 {output.R1} -2 {params.R2} - && "
+        "rm {params.R2}"
+
+rule download_deconseq:
+    threads:
+        workflow.cores
+    output:
+        dir=directory("deconseq-standalone-0.4.3/")
+    shell:
+        "wget https://sourceforge.net/projects/deconseq/files/standalone/deconseq-standalone-0.4.3.tar.gz/download && "
+        "tar -xvzf download && "
+        "rm download && "
+        "chmod +x deconseq-standalone-0.4.3/bwa64"
+
+rule deconseq_index_gen:
+    input:
+        dir=rules.download_deconseq.output.dir,
+        deconseq="deconseq-standalone-0.4.3",
+        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+    output:
+        dummy_output=directory("indexes/deconseq")
+    threads:
+        workflow.cores
+    shell:
+        "mkdir -p indexes/deconseq && "
+        "mkdir -p deconseq-standalone-0.4.3/db && "
+        "{input.deconseq}/bwa64 index -p {input.deconseq}/db/hs_ref_GRCh37 -a bwtsw {input.genome}"
+
+rule deconseq_map_unpaired:
+    params:
+        deconseq="deconseq-standalone-0.4.3",
+        out_dir="{tech}_reads/{seed}/results/deconseq_{type}_unpaired/",
+        input_R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq",
+        output_R1="{tech}_reads/{seed}/results/deconseq_{type}_unpaired/123_clean.fq"
+    input:
+        "indexes/deconseq/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
+    output:
+        directory("{tech}_reads/{seed}/results/deconseq_{type}_unpaired/"),
+        R1="{tech}_reads/{seed}/results/deconseq_{type}_unpaired/{type}_microbiome_clean_1_unpaired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/deconseq_{type}_unpaired/{type}_microbiome_benchmark_unpaired.txt"
+    shell:
+        "mkdir -p {params.out_dir} && "
+        "gunzip -dk {input.R1} && "
+        "cd {params.deconseq} && "
+        "perl deconseq.pl --dbs hsref -f ../{params.input_R1} --out_dir ../{params.out_dir} --id 123 && "
+        "cd .. && "
+        "rm {params.input_R1} && "
+        "mv {params.output_R1} {output.R1}"
 
 rule hocort_index_gen_minimap2:
     input:
@@ -568,7 +860,7 @@ rule hocort_index_gen:
     output:
         directory("indexes/{mapper}/")
     wildcard_constraints:
-        mapper="^(Bowtie2|HISAT2|Kraken2|BBMap)"
+        mapper='|'.join(['Bowtie2', 'HISAT2', 'Kraken2', 'BBMap', 'BWA_MEM2'])
     threads:
         workflow.cores
     shell:
