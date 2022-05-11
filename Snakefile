@@ -1,6 +1,6 @@
 SEEDS=["123", "124", "125", "126", "127", "128", "129"]
 UNPAIRED_TOOLS=["Minimap2_nanopore", "Kraken2Minimap2_nanopore", "Kraken2"]
-PAIRED_TOOLS=["Bowtie2_end-to-end", "Bowtie2_local", "Bowtie2_ad_hoc_un_conc", "HISAT2", "Kraken2", "BWA_MEM2", "BBMap", "Kraken2Bowtie2", "Kraken2HISAT2", "Bowtie2Bowtie2", "Bowtie2HISAT2", "Minimap2_illumina"]
+PAIRED_TOOLS=["Bowtie2_end-to-end", "Bowtie2_local", "Bowtie2_ad_hoc_un_conc", "HISAT2", "Kraken2", "BBMap_default", "BBMap_fast", "BWA_MEM2", "Kraken2Bowtie2", "Kraken2HISAT2", "Bowtie2Bowtie2", "Bowtie2HISAT2", "Minimap2_illumina", "Kraken2Minimap2_illumina"]
 MICROBIOME_TYPES=["gut", "oral"]
 
 
@@ -14,37 +14,39 @@ rule all:
         expand("hiseq_reads/{type}_microbiome_paired_table.txt", type=MICROBIOME_TYPES),
         expand("miseq_reads/{type}_microbiome_paired_table.txt", type=MICROBIOME_TYPES),
         expand("nanopore_reads/{type}_microbiome_unpaired_table.txt", type=MICROBIOME_TYPES),
-        "hiseq_reads/bowtie2_endtoend_deconseq_comparison.txt"
+        "hiseq_reads/bowtie2_endtoend_deconseq_comparison.txt",
+        "miseq_reads/bowtie2_endtoend_deconseq_comparison.txt"
 
 rule bowtie2_endtoend_deconseq_comparison:
     threads:
         workflow.cores
     params:
-        deconseq_benchmark="hiseq_reads/123/results/deconseq_gut_unpaired/gut_microbiome_benchmark_unpaired.txt",
-        bowtie2_benchmark="hiseq_reads/123/results/Bowtie2_end-to-end/gut_microbiome_benchmark_unpaired.txt"
+        deconseq_benchmark="{tech}_reads/123/results/deconseq_gut_unpaired/gut_microbiome_benchmark_unpaired.txt",
+        bowtie2_benchmark="{tech}_reads/123/results/Bowtie2_end-to-end/gut_microbiome_benchmark_unpaired.txt"
     input:
-        results_deconseq="hiseq_reads/123/results/deconseq_gut_unpaired/gut_microbiome_unpaired.txt",
-        results_bowtie2="hiseq_reads/123/results/Bowtie2_end-to-end/gut_microbiome_unpaired.txt"
+        results_deconseq="{tech}_reads/123/results/deconseq_gut_unpaired/gut_microbiome_unpaired.txt",
+        results_bowtie2="{tech}_reads/123/results/Bowtie2_end-to-end/gut_microbiome_unpaired.txt"
     output:
-        results="hiseq_reads/bowtie2_endtoend_deconseq_comparison.txt"
+        results="{tech}_reads/bowtie2_endtoend_deconseq_comparison.txt"
     run:
         import json
-        def parse(tool):
-            path_results = f'hiseq_reads/123/results/{tool}/gut_microbiome_unpaired.txt'
-            path_benchmark = f'hiseq_reads/123/results/{tool}/gut_microbiome_benchmark_unpaired.txt'
+        def parse(tech, tool):
+            path_results = f'{tech}_reads/123/results/{tool}/gut_microbiome_unpaired.txt'
+            path_benchmark = f'{tech}_reads/123/results/{tool}/gut_microbiome_benchmark_unpaired.txt'
             with open(path_results, 'r') as f:
                 data = json.loads(f.readlines()[0])
             with open(path_benchmark, 'r') as f:
                 bits = f.readlines()[1].split()
             data['runtime'] = float(bits[0])
             return data
-        def get_results(tools):
+        def get_results(tech, tools):
             results = {}
             for tool in tools:
-                data = parse(tool)
+                data = parse(tech, tool)
                 results[tool] = data
             return results
-        results = get_results(['Bowtie2_end-to-end',
+        results = get_results(wildcards.tech,
+                              ['Bowtie2_end-to-end',
                                'deconseq_gut_unpaired'])
         with open(output.results, "w") as f:
             f.write(json.dumps(results))
@@ -68,8 +70,6 @@ rule draw_latex_table:
         nanopore_oral="nanopore_reads/oral_microbiome_unpaired_table.txt"
     run:
         import json
-        import decimal
-        decimal.getcontext().rounding = decimal.ROUND_DOWN
         def build_tables(path):
             limits = {}
             with open(path, 'r') as f:
@@ -104,14 +104,10 @@ rule draw_latex_table:
                             # if element is largest or smallest add color
                             val = data[tool][header][elem]
                             decimals = 4
-                            # truncate
-                            rounded_val = float(round(decimal.Decimal(val), decimals))
-                            rounded_max = float(round(decimal.Decimal(limits[header][elem]['max']), decimals))
-                            rounded_min = float(round(decimal.Decimal(limits[header][elem]['min']), decimals))
                             # round
-                            #rounded_val = round(val, decimals)
-                            #rounded_max = round(limits[header][elem]['max'], decimals)
-                            #rounded_min = round(limits[header][elem]['min'], decimals)
+                            rounded_val = round(val, decimals)
+                            rounded_max = round(limits[header][elem]['max'], decimals)
+                            rounded_min = round(limits[header][elem]['min'], decimals)
                             if rounded_val == rounded_max:
                                 string = ' & ' + '\cellcolor{cyan!35}' + str(rounded_val)
                             elif rounded_val == rounded_min:
@@ -359,8 +355,8 @@ rule hocort_map_Kraken2Minimap2_paired:
     params:
         R2="{tech}_reads/{seed}/results/Kraken2Minimap2_{tech_brand}/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/Kraken2/",
-        "indexes/Minimap2_{tech_brand}/",
+        "indexes/kraken2/",
+        "indexes/minimap2_{tech_brand}/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -371,13 +367,13 @@ rule hocort_map_Kraken2Minimap2_paired:
         "{tech}_reads/{seed}/results/Kraken2Minimap2_{tech_brand}/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2Minimap2_{wildcards.tech_brand} && "
-        "hocort map Kraken2Minimap2 -t {workflow.cores} -k indexes/Kraken2/human -m indexes/Minimap2_{wildcards.tech_brand}/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} -p {wildcards.tech_brand} && "
+        "hocort map kraken2minimap2 -t {workflow.cores} -k indexes/kraken2/human -m indexes/minimap2_{wildcards.tech_brand}/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} -p {wildcards.tech_brand} && "
         "rm {params.R2}"
 
 rule hocort_map_Kraken2Minimap2_unpaired:
     input:
-        "indexes/Kraken2/",
-        "indexes/Minimap2_{tech_brand}/",
+        "indexes/kraken2/",
+        "indexes/minimap2_{tech_brand}/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Kraken2Minimap2_{tech_brand}/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -387,14 +383,14 @@ rule hocort_map_Kraken2Minimap2_unpaired:
         "{tech}_reads/{seed}/results/Kraken2Minimap2_{tech_brand}/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2Minimap2_{wildcards.tech_brand} && "
-        "hocort map Kraken2Minimap2 -t {workflow.cores} -k indexes/Kraken2/human -m indexes/Minimap2_{wildcards.tech_brand}/human -i {input.R1} -o {output.R1} -p {wildcards.tech_brand}"
+        "hocort map kraken2minimap2 -t {workflow.cores} -k indexes/kraken2/human -m indexes/minimap2_{wildcards.tech_brand}/human -i {input.R1} -o {output.R1} -p {wildcards.tech_brand}"
 
 rule hocort_map_Kraken2Bowtie2_paired:
     params:
         R2="{tech}_reads/{seed}/results/Kraken2Bowtie2/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/Bowtie2/",
-        "indexes/Kraken2/",
+        "indexes/bowtie2/",
+        "indexes/kraken2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -405,13 +401,13 @@ rule hocort_map_Kraken2Bowtie2_paired:
         "{tech}_reads/{seed}/results/Kraken2Bowtie2/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2Bowtie2 && "
-        "hocort map Kraken2Bowtie2 -t {workflow.cores} -b indexes/Bowtie2/human -k indexes/Kraken2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "hocort map kraken2bowtie2 -t {workflow.cores} -b indexes/bowtie2/human -k indexes/kraken2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
         "rm {params.R2}"
 
 rule hocort_map_Kraken2Bowtie2_unpaired:
     input:
-        "indexes/Bowtie2/",
-        "indexes/Kraken2/",
+        "indexes/bowtie2/",
+        "indexes/kraken2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Kraken2Bowtie2/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -421,14 +417,14 @@ rule hocort_map_Kraken2Bowtie2_unpaired:
         "{tech}_reads/{seed}/results/Kraken2Bowtie2/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2Bowtie2 && "
-        "hocort map Kraken2Bowtie2 -t {workflow.cores} -b indexes/Bowtie2/human -k indexes/Kraken2/human -i {input.R1} -o {output.R1}"
+        "hocort map kraken2bowtie2 -t {workflow.cores} -b indexes/bowtie2/human -k indexes/kraken2/human -i {input.R1} -o {output.R1}"
 
 rule hocort_map_Kraken2HISAT2_paired:
     params:
         R2="{tech}_reads/{seed}/results/Kraken2HISAT2/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/HISAT2/",
-        "indexes/Kraken2/",
+        "indexes/hisat2/",
+        "indexes/kraken2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -439,13 +435,13 @@ rule hocort_map_Kraken2HISAT2_paired:
         "{tech}_reads/{seed}/results/Kraken2HISAT2/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2HISAT2 && "
-        "hocort map Kraken2HISAT2 -t {workflow.cores} -s indexes/HISAT2/human -k indexes/Kraken2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "hocort map kraken2hisat2 -t {workflow.cores} -s indexes/hisat2/human -k indexes/kraken2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
         "rm {params.R2}"
 
 rule hocort_map_Kraken2HISAT2_unpaired:
     input:
-        "indexes/HISAT2/",
-        "indexes/Kraken2/",
+        "indexes/hisat2/",
+        "indexes/kraken2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Kraken2HISAT2/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -455,14 +451,14 @@ rule hocort_map_Kraken2HISAT2_unpaired:
         "{tech}_reads/{seed}/results/Kraken2HISAT2/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2HISAT2 && "
-        "hocort map Kraken2HISAT2 -t {workflow.cores} -s indexes/HISAT2/human -k indexes/Kraken2/human -i {input.R1} -o {output.R1}"
+        "hocort map kraken2hisat2 -t {workflow.cores} -s indexes/hisat2/human -k indexes/kraken2/human -i {input.R1} -o {output.R1}"
 
 rule hocort_map_Bowtie2HISAT2_paired:
     params:
         R2="{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/Bowtie2/",
-        "indexes/HISAT2/",
+        "indexes/bowtie2/",
+        "indexes/hisat2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -473,13 +469,13 @@ rule hocort_map_Bowtie2HISAT2_paired:
         "{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2HISAT2 && "
-        "hocort map Bowtie2HISAT2 -t {workflow.cores} -s indexes/HISAT2/human -b indexes/Bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "hocort map bowtie2hisat2 -t {workflow.cores} -s indexes/hisat2/human -b indexes/bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
         "rm {params.R2}"
 
 rule hocort_map_Bowtie2HISAT2_unpaired:
     input:
-        "indexes/Bowtie2/",
-        "indexes/HISAT2/",
+        "indexes/bowtie2/",
+        "indexes/hisat2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -489,13 +485,13 @@ rule hocort_map_Bowtie2HISAT2_unpaired:
         "{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2HISAT2 && "
-        "hocort map Bowtie2HISAT2 -t {workflow.cores} -s indexes/HISAT2/human -b indexes/Bowtie2/human -i {input.R1} -o {output.R1}"
+        "hocort map bowtie2hisat2 -t {workflow.cores} -s indexes/hisat2/human -b indexes/bowtie2/human -i {input.R1} -o {output.R1}"
 
 rule hocort_map_Bowtie2Bowtie2_paired:
     params:
         R2="{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/Bowtie2/",
+        "indexes/bowtie2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -506,12 +502,12 @@ rule hocort_map_Bowtie2Bowtie2_paired:
         "{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2Bowtie2 && "
-        "hocort map Bowtie2Bowtie2 -t {workflow.cores} -x indexes/Bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "hocort map bowtie2bowtie2 -t {workflow.cores} -x indexes/bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
         "rm {params.R2}"
 
 rule hocort_map_Bowtie2Bowtie2_unpaired:
     input:
-        "indexes/Bowtie2/",
+        "indexes/bowtie2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -521,7 +517,7 @@ rule hocort_map_Bowtie2Bowtie2_unpaired:
         "{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2Bowtie2 && "
-        "hocort map Bowtie2Bowtie2 -t {workflow.cores} -x indexes/Bowtie2/human -i {input.R1} -o {output.R1}"
+        "hocort map bowtie2bowtie2 -t {workflow.cores} -x indexes/bowtie2/human -i {input.R1} -o {output.R1}"
 
 # Kraken2 does not compress output
 rule hocort_map_Kraken2_paired:
@@ -529,7 +525,7 @@ rule hocort_map_Kraken2_paired:
         out="{tech}_reads/{seed}/results/Kraken2/{type}_microbiome_clean#_paired.fastq.gz",
         R2="{tech}_reads/{seed}/results/Kraken2/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/Kraken2/",
+        "indexes/kraken2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -540,13 +536,13 @@ rule hocort_map_Kraken2_paired:
         "{tech}_reads/{seed}/results/Kraken2/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2 && "
-        "hocort map Kraken2 -t {workflow.cores} -x indexes/Kraken2/human -i {input.R1} {input.R2} -o {params.out} && "
+        "hocort map kraken2 -t {workflow.cores} -x indexes/kraken2/human -i {input.R1} {input.R2} -o {params.out} && "
         "rm {params.R2}"
 
 # Kraken2 does not compress output
 rule hocort_map_Kraken2_unpaired:
     input:
-        "indexes/Kraken2/",
+        "indexes/kraken2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Kraken2/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -556,13 +552,13 @@ rule hocort_map_Kraken2_unpaired:
         "{tech}_reads/{seed}/results/Kraken2/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2 && "
-        "hocort map Kraken2 -t {workflow.cores} -x indexes/Kraken2/human -i {input.R1} -o {output.R1}"
+        "hocort map kraken2 -t {workflow.cores} -x indexes/kraken2/human -i {input.R1} -o {output.R1}"
 
 rule hocort_map_Minimap2_paired:
     params:
         R2="{tech}_reads/{seed}/results/Minimap2_{tech_brand}/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/Minimap2_{tech_brand}/",
+        "indexes/minimap2_{tech_brand}/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -573,12 +569,12 @@ rule hocort_map_Minimap2_paired:
         "{tech}_reads/{seed}/results/Minimap2_{tech_brand}/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Minimap2_{wildcards.tech_brand} && "
-        "hocort map Minimap2 -t {workflow.cores} -x indexes/Minimap2_{wildcards.tech_brand}/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} -p {wildcards.tech_brand} && "
+        "hocort map minimap2 -t {workflow.cores} -x indexes/minimap2_{wildcards.tech_brand}/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} -p {wildcards.tech_brand} && "
         "rm {params.R2}"
 
 rule hocort_map_Minimap2_unpaired:
     input:
-        "indexes/Minimap2_{tech_brand}/",
+        "indexes/minimap2_{tech_brand}/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Minimap2_{tech_brand}/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -588,13 +584,13 @@ rule hocort_map_Minimap2_unpaired:
         "{tech}_reads/{seed}/results/Minimap2_{tech_brand}/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Minimap2_{wildcards.tech_brand} && "
-        "hocort map Minimap2 -t {workflow.cores} -x indexes/Minimap2_{wildcards.tech_brand}/human -i {input.R1} -o {output.R1} -p {wildcards.tech_brand}"
+        "hocort map minimap2 -t {workflow.cores} -x indexes/minimap2_{wildcards.tech_brand}/human -i {input.R1} -o {output.R1} -p {wildcards.tech_brand}"
 
 rule hocort_map_HISAT2_paired:
     params:
         R2="{tech}_reads/{seed}/results/HISAT2/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/HISAT2/",
+        "indexes/hisat2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -605,12 +601,12 @@ rule hocort_map_HISAT2_paired:
         "{tech}_reads/{seed}/results/HISAT2/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/HISAT2 && "
-        "hocort map HISAT2 -t {workflow.cores} -x indexes/HISAT2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "hocort map hisat2 -t {workflow.cores} -x indexes/hisat2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
         "rm {params.R2}"
 
 rule hocort_map_HISAT2_unpaired:
     input:
-        "indexes/HISAT2/",
+        "indexes/hisat2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/HISAT2/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -620,13 +616,13 @@ rule hocort_map_HISAT2_unpaired:
         "{tech}_reads/{seed}/results/HISAT2/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/HISAT2 && "
-        "hocort map HISAT2 -t {workflow.cores} -x indexes/HISAT2/human -i {input.R1} -o {output.R1}"
+        "hocort map hisat2 -t {workflow.cores} -x indexes/hisat2/human -i {input.R1} -o {output.R1}"
 
 rule hocort_map_BWA_MEM2_paired:
     params:
         R2="{tech}_reads/{seed}/results/BWA_MEM2/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/BWA_MEM2/",
+        "indexes/bwamem2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -637,12 +633,12 @@ rule hocort_map_BWA_MEM2_paired:
         "{tech}_reads/{seed}/results/BWA_MEM2/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BWA_MEM2 && "
-        "hocort map BWA_MEM2 -t {workflow.cores} -x indexes/BWA_MEM2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "hocort map bwamem2 -t {workflow.cores} -x indexes/bwamem2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
         "rm {params.R2}"
 
 rule hocort_map_BWA_MEM2_unpaired:
     input:
-        "indexes/BWA_MEM2/",
+        "indexes/bwamem2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/BWA_MEM2/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -652,29 +648,47 @@ rule hocort_map_BWA_MEM2_unpaired:
         "{tech}_reads/{seed}/results/BWA_MEM2/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BWA_MEM2 && "
-        "hocort map BWA_MEM2 -t {workflow.cores} -x indexes/BWA_MEM2/human -i {input.R1} -o {output.R1}"
+        "hocort map bwamem2 -t {workflow.cores} -x indexes/bwamem2/human -i {input.R1} -o {output.R1}"
 
-rule hocort_map_BBMap_paired:
+rule hocort_map_BBMap_default_paired:
     params:
-        R2="{tech}_reads/{seed}/results/BBMap/{type}_microbiome_clean_2_paired.fastq.gz"
+        R2="{tech}_reads/{seed}/results/BBMap_default/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/BBMap/",
+        "indexes/bbmap/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
-        R1="{tech}_reads/{seed}/results/BBMap/{type}_microbiome_clean_1_paired.fastq.gz"
+        R1="{tech}_reads/{seed}/results/BBMap_default/{type}_microbiome_clean_1_paired.fastq.gz"
     threads:
         workflow.cores
     benchmark:
-        "{tech}_reads/{seed}/results/BBMap/{type}_microbiome_benchmark_paired.txt"
+        "{tech}_reads/{seed}/results/BBMap_default/{type}_microbiome_benchmark_paired.txt"
     shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BBMap && "
-        "hocort map BBMap -t {workflow.cores} -x indexes/BBMap/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BBMap_default && "
+        'hocort map bbmap -t {workflow.cores} -x indexes/bbmap/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} -c="" && '
+        "rm {params.R2}"
+
+rule hocort_map_BBMap_fast_paired:
+    params:
+        R2="{tech}_reads/{seed}/results/BBMap_fast/{type}_microbiome_clean_2_paired.fastq.gz"
+    input:
+        "indexes/bbmap/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/BBMap_fast/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/BBMap_fast/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BBMap_fast && "
+        'hocort map bbmap -t {workflow.cores} -x indexes/bbmap/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} -c="fast=t" && '
         "rm {params.R2}"
 
 rule hocort_map_BBMap_unpaired:
     input:
-        "indexes/BBMap/",
+        "indexes/bbmap/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/BBMap/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -684,13 +698,13 @@ rule hocort_map_BBMap_unpaired:
         "{tech}_reads/{seed}/results/BBMap/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BBMap && "
-        "hocort map BBMap -t {workflow.cores} -x indexes/BBMap/human -i {input.R1} -o {output.R1}"
+        "hocort map bbmap -p nanopore -t {workflow.cores} -x indexes/bbmap/human -i {input.R1} -o {output.R1}"
 
 rule hocort_map_Bowtie2_paired:
     params:
         R2="{tech}_reads/{seed}/results/Bowtie2_{mode}/{type}_microbiome_clean_2_paired.fastq.gz"
     input:
-        "indexes/Bowtie2/",
+        "indexes/bowtie2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -703,12 +717,12 @@ rule hocort_map_Bowtie2_paired:
         "{tech}_reads/{seed}/results/Bowtie2_{mode}/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_{wildcards.mode} && "
-        "hocort map Bowtie2 -m {wildcards.mode} -t {workflow.cores} -x indexes/Bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
+        "hocort map bowtie2 -p {wildcards.mode} -t {workflow.cores} -x indexes/bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
         "rm {params.R2}"
 
 rule hocort_map_Bowtie2_unpaired:
     input:
-        "indexes/Bowtie2/",
+        "indexes/bowtie2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
     output:
         R1="{tech}_reads/{seed}/results/Bowtie2_{mode}/{type}_microbiome_clean_1_unpaired.fastq.gz"
@@ -720,11 +734,11 @@ rule hocort_map_Bowtie2_unpaired:
         "{tech}_reads/{seed}/results/Bowtie2_{mode}/{type}_microbiome_benchmark_unpaired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_{wildcards.mode} && "
-        "hocort map Bowtie2 -m {wildcards.mode} -t {workflow.cores} -x indexes/Bowtie2/human -i {input.R1} -o {output.R1}"
+        "hocort map bowtie2 -p {wildcards.mode} -t {workflow.cores} -x indexes/bowtie2/human -i {input.R1} -o {output.R1}"
 
 rule map_Bowtie2_ad_hoc_un_conc_paired:
     input:
-        "indexes/Bowtie2/",
+        "indexes/bowtie2/",
         R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
         R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
     output:
@@ -735,63 +749,9 @@ rule map_Bowtie2_ad_hoc_un_conc_paired:
         "{tech}_reads/{seed}/results/Bowtie2_ad_hoc_un_conc/{type}_microbiome_benchmark_paired.txt"
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_ad_hoc_un_conc && "
-        "bowtie2 -x indexes/Bowtie2/human -p {workflow.cores} -1 {input.R1} -2 {input.R2} --un-conc-gz bowtie2_clean_temp > /dev/null && "
+        "bowtie2 -x indexes/bowtie2/human -p {workflow.cores} -1 {input.R1} -2 {input.R2} --un-conc-gz bowtie2_clean_temp > /dev/null && "
         "mv bowtie2_clean_temp.1 {output.R1} && "
         "rm bowtie2_clean_temp.2"
-
-rule map_Bowtie2_ad_hoc_end_to_end_paired:
-    params:
-        R2="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_end_to_end/{type}_microbiome_clean_2_paired.fastq.gz"
-    input:
-        "indexes/Bowtie2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
-        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
-    output:
-        R1="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_end_to_end/{type}_microbiome_clean_1_paired.fastq.gz"
-    threads:
-        workflow.cores
-    benchmark:
-        "{tech}_reads/{seed}/results/Bowtie2_ad_hoc_end_to_end/{type}_microbiome_benchmark_paired.txt"
-    shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_ad_hoc_end_to_end && "
-        "bowtie2 -x indexes/Bowtie2/human -p {workflow.cores} -1 {input.R1} -2 {input.R2} --end-to-end | samtools fastq --threads {workflow.cores} -N -f 13 -1 {output.R1} -2 {params.R2} - && "
-        "rm {params.R2}"
-
-rule map_Bowtie2_ad_hoc_local_paired:
-    params:
-        R2="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_local/{type}_microbiome_clean_2_paired.fastq.gz"
-    input:
-        "indexes/Bowtie2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
-        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
-    output:
-        R1="{tech}_reads/{seed}/results/Bowtie2_ad_hoc_local/{type}_microbiome_clean_1_paired.fastq.gz"
-    threads:
-        workflow.cores
-    benchmark:
-        "{tech}_reads/{seed}/results/Bowtie2_ad_hoc_local/{type}_microbiome_benchmark_paired.txt"
-    shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_ad_hoc_local && "
-        "bowtie2 -x indexes/Bowtie2/human -p {workflow.cores} -1 {input.R1} -2 {input.R2} --local | samtools fastq --threads {workflow.cores} -N -f 13 -1 {output.R1} -2 {params.R2} - && "
-        "rm {params.R2}"
-
-rule map_BWA_MEM2_ad_hoc_paired:
-    params:
-        R2="{tech}_reads/{seed}/results/BWA_MEM2_ad_hoc/{type}_microbiome_clean_2_paired.fastq.gz"
-    input:
-        "indexes/BWA_MEM2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
-        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
-    output:
-        R1="{tech}_reads/{seed}/results/BWA_MEM2_ad_hoc/{type}_microbiome_clean_1_paired.fastq.gz"
-    threads:
-        workflow.cores
-    benchmark:
-        "{tech}_reads/{seed}/results/BWA_MEM2_ad_hoc/{type}_microbiome_benchmark_paired.txt"
-    shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BWA_MEM2_ad_hoc && "
-        "bwa-mem2 mem -t {workflow.cores} indexes/BWA_MEM2/human {input.R1} {input.R2} | samtools fastq --threads {workflow.cores} -N -f 13 -1 {output.R1} -2 {params.R2} - && "
-        "rm {params.R2}"
 
 rule download_deconseq:
     threads:
@@ -847,12 +807,12 @@ rule hocort_index_gen_minimap2:
     input:
         genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
     output:
-        directory("indexes/Minimap2_{tech}/")
+        directory("indexes/minimap2_{tech}/")
     threads:
         workflow.cores
     shell:
-        "mkdir -p indexes/Minimap2_{wildcards.tech}/ && "
-        "hocort index Minimap2 -i {input.genome} -o indexes/Minimap2_{wildcards.tech}/human -p {wildcards.tech}"
+        "mkdir -p indexes/minimap2_{wildcards.tech}/ && "
+        "hocort index minimap2 -i {input.genome} -o indexes/minimap2_{wildcards.tech}/human -p {wildcards.tech}"
 
 rule hocort_index_gen:
     input:
@@ -860,7 +820,7 @@ rule hocort_index_gen:
     output:
         directory("indexes/{mapper}/")
     wildcard_constraints:
-        mapper='|'.join(['Bowtie2', 'HISAT2', 'Kraken2', 'BBMap', 'BWA_MEM2'])
+        mapper='|'.join(['bowtie2', 'hisat2', 'kraken2', 'bbmap', 'bwamem2'])
     threads:
         workflow.cores
     shell:
