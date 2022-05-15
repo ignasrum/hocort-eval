@@ -16,3 +16,5 @@ Run the evaluation tests by running the following command:
 snakemake --cores 16
 ```
 The results will be available in the directories named hiseq_reads, miseq_reads and nanopore_reads.
+
+The boxplot generation script is found under "/boxplots/".
