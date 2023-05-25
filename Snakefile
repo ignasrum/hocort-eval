@@ -1,20 +1,23 @@
 SEEDS=["123", "124", "125", "126", "127", "128", "129"]
 UNPAIRED_TOOLS=["Minimap2_nanopore",
+                "BioBloom",
                 "Kraken2Minimap2_nanopore",
                 "Kraken2"]
-PAIRED_TOOLS=["Bowtie2_end-to-end",
+PAIRED_TOOLS=["Seal",
+              "BBDuk",
+              "BBSplit",
+              "BioBloom",
+              "Bowtie2_end-to-end",
               "Bowtie2_local",
               "Bowtie2_end_to_end_un_conc",
               "Bowtie2_local_un_conc",
               "HISAT2",
               "Kraken2",
-              "BBMap_default",
+              #"BBMap_default",
               "BBMap_fast",
               "BWA_MEM2",
               "Kraken2Bowtie2",
               "Kraken2HISAT2",
-              "Bowtie2Bowtie2",
-              "Bowtie2HISAT2",
               "Minimap2_illumina",
               "Kraken2Minimap2_illumina"]
 MICROBIOME_TYPES=["gut", "oral"]
@@ -30,6 +33,9 @@ rule all:
         expand("hiseq_reads/{type}_microbiome_paired_table.txt", type=MICROBIOME_TYPES),
         expand("miseq_reads/{type}_microbiome_paired_table.txt", type=MICROBIOME_TYPES),
         expand("nanopore_reads/{type}_microbiome_unpaired_table.txt", type=MICROBIOME_TYPES),
+        expand("hiseq_reads/{type}_microbiome_paired_parsed.txt", type=MICROBIOME_TYPES),
+        expand("miseq_reads/{type}_microbiome_paired_parsed.txt", type=MICROBIOME_TYPES),
+        expand("nanopore_reads/{type}_microbiome_unpaired_parsed.txt", type=MICROBIOME_TYPES),
         "hiseq_reads/bowtie2_endtoend_deconseq_comparison.txt",
         "miseq_reads/bowtie2_endtoend_deconseq_comparison.txt"
 
@@ -106,6 +112,8 @@ rule draw_latex_table:
             with open(path, 'r') as f:
                 data = json.loads(f.readlines()[0])
                 # extract header
+                print(path)
+                print(len(data))
                 first = list(data)[0]
                 for header in data[first]:
                     tables['table_headers'][header] = 'Pipeline'
@@ -321,7 +329,6 @@ rule draw_confusion_matrix:
             plt.tight_layout()
             plt.savefig(output.results)
 
-
 # compare to original files with fastq-compare and write results (confusion_matrix) to file
 rule fastq_compare:
     threads:
@@ -469,72 +476,6 @@ rule hocort_map_Kraken2HISAT2_unpaired:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Kraken2HISAT2 && "
         "hocort map kraken2hisat2 -t {workflow.cores} -s indexes/hisat2/human -k indexes/kraken2/human -i {input.R1} -o {output.R1}"
 
-rule hocort_map_Bowtie2HISAT2_paired:
-    params:
-        R2="{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_clean_2_paired.fastq.gz"
-    input:
-        "indexes/bowtie2/",
-        "indexes/hisat2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
-        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
-    output:
-        R1="{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_clean_1_paired.fastq.gz"
-    threads:
-        workflow.cores
-    benchmark:
-        "{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_benchmark_paired.txt"
-    shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2HISAT2 && "
-        "hocort map bowtie2hisat2 -t {workflow.cores} -s indexes/hisat2/human -b indexes/bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
-        "rm {params.R2}"
-
-rule hocort_map_Bowtie2HISAT2_unpaired:
-    input:
-        "indexes/bowtie2/",
-        "indexes/hisat2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
-    output:
-        R1="{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_clean_1_unpaired.fastq.gz"
-    threads:
-        workflow.cores
-    benchmark:
-        "{tech}_reads/{seed}/results/Bowtie2HISAT2/{type}_microbiome_benchmark_unpaired.txt"
-    shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2HISAT2 && "
-        "hocort map bowtie2hisat2 -t {workflow.cores} -s indexes/hisat2/human -b indexes/bowtie2/human -i {input.R1} -o {output.R1}"
-
-rule hocort_map_Bowtie2Bowtie2_paired:
-    params:
-        R2="{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_clean_2_paired.fastq.gz"
-    input:
-        "indexes/bowtie2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
-        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
-    output:
-        R1="{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_clean_1_paired.fastq.gz"
-    threads:
-        workflow.cores
-    benchmark:
-        "{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_benchmark_paired.txt"
-    shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2Bowtie2 && "
-        "hocort map bowtie2bowtie2 -t {workflow.cores} -x indexes/bowtie2/human -i {input.R1} {input.R2} -o {output.R1} {params.R2} && "
-        "rm {params.R2}"
-
-rule hocort_map_Bowtie2Bowtie2_unpaired:
-    input:
-        "indexes/bowtie2/",
-        R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
-    output:
-        R1="{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_clean_1_unpaired.fastq.gz"
-    threads:
-        workflow.cores
-    benchmark:
-        "{tech}_reads/{seed}/results/Bowtie2Bowtie2/{type}_microbiome_benchmark_unpaired.txt"
-    shell:
-        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2Bowtie2 && "
-        "hocort map bowtie2bowtie2 -t {workflow.cores} -x indexes/bowtie2/human -i {input.R1} -o {output.R1}"
-
 # Kraken2 does not compress output
 rule hocort_map_Kraken2_paired:
     params:
@@ -601,6 +542,45 @@ rule hocort_map_Minimap2_unpaired:
     shell:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Minimap2_{wildcards.tech_brand} && "
         "hocort map minimap2 -t {workflow.cores} -x indexes/minimap2_{wildcards.tech_brand}/human -i {input.R1} -o {output.R1} -p {wildcards.tech_brand}"
+
+rule hocort_map_BioBloom_paired:
+    params:
+        R1="{tech}_reads/{seed}/results/BioBloom/_noMatch_1.fq",
+        R2="{tech}_reads/{seed}/results/BioBloom/_noMatch_2.fq",
+        out_dir="{tech}_reads/{seed}/results/BioBloom/"
+    input:
+        "indexes/biobloom/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/BioBloom/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/BioBloom/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BioBloom && "
+        "hocort map biobloom -t {workflow.cores} -x indexes/biobloom/human/reference.bf -i {input.R1} {input.R2} -o {params.out_dir} && "
+        "mv {params.R1} {output.R1} && "
+        "rm {params.R2}"
+
+rule hocort_map_BioBloom_unpaired:
+    params:
+        R1="{tech}_reads/{seed}/results/BioBloom/_noMatch.fq",
+        out_dir="{tech}_reads/{seed}/results/BioBloom/"
+    input:
+        "indexes/biobloom/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_unpaired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/BioBloom/{type}_microbiome_clean_1_unpaired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/BioBloom/{type}_microbiome_benchmark_unpaired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BioBloom && "
+        "hocort map biobloom -t {workflow.cores} -x indexes/biobloom/human/reference.bf -i {input.R1} -o {params.out_dir} && "
+        "mv {params.R1} {output.R1}"
 
 rule hocort_map_HISAT2_paired:
     params:
@@ -752,6 +732,59 @@ rule hocort_map_Bowtie2_unpaired:
         "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Bowtie2_{wildcards.mode} && "
         "hocort map bowtie2 -p {wildcards.mode} -t {workflow.cores} -x indexes/bowtie2/human -i {input.R1} -o {output.R1}"
 
+rule map_Seal_paired:
+    params:
+        R2="{tech}_reads/{seed}/results/Seal/{type}_microbiome_clean_2_paired.fastq.gz"
+    input:
+        ref="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/Seal/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/Seal/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/Seal && "
+        "seal.sh ref={input.ref} in1={input.R1} in2={input.R2} outu1={output.R1} outu2={params.R2} -Xmx62G && "
+        "rm {params.R2}"
+
+rule map_BBSplit_paired:
+    input:
+        ref="indexes/bbsplit/",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/BBSplit/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/BBSplit/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BBSplit && "
+        "bbsplit.sh path={input.ref} in1={input.R1} in2={input.R2} outu=out_#.fastq -Xmx=62G && "
+        "mv out_1.fastq {output.R1} && "
+        "rm out_2.fastq"
+
+rule map_BBDuk_paired:
+    params:
+        R2="{tech}_reads/{seed}/results/BBDuk/{type}_microbiome_clean_2_paired.fastq.gz"
+    input:
+        ref="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna",
+        R1="{tech}_reads/{seed}/{type}_microbiome_R1_paired.fastq.gz",
+        R2="{tech}_reads/{seed}/{type}_microbiome_R2_paired.fastq.gz"
+    output:
+        R1="{tech}_reads/{seed}/results/BBDuk/{type}_microbiome_clean_1_paired.fastq.gz"
+    threads:
+        workflow.cores
+    benchmark:
+        "{tech}_reads/{seed}/results/BBDuk/{type}_microbiome_benchmark_paired.txt"
+    shell:
+        "mkdir -p {wildcards.tech}_reads/{wildcards.seed}/results/BBDuk && "
+        "bbduk.sh in={input.R1} in2={input.R2} out1={output.R1} out2={params.R2} ref={input.ref} -Xmx62G && "
+        "rm {params.R2}"
+
 rule map_Bowtie2_end_to_end_un_conc_paired:
     input:
         "indexes/bowtie2/",
@@ -801,7 +834,7 @@ rule deconseq_index_gen:
     input:
         dir=rules.download_deconseq.output.dir,
         deconseq="deconseq-standalone-0.4.3",
-        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     output:
         dummy_output=directory("indexes/deconseq")
     threads:
@@ -836,9 +869,31 @@ rule deconseq_map_unpaired:
         "rm {params.input_R1} && "
         "mv {params.output_R1} {output.R1}"
 
+rule index_gen_BBSplit:
+    input:
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
+    output:
+        directory("indexes/bbsplit/")
+    threads:
+        workflow.cores
+    shell:
+        "mkdir -p indexes/bbsplit/ && "
+        "bbsplit.sh build=1 ref_x={input.genome} path=indexes/bbsplit/"
+
+rule hocort_index_gen_biobloom:
+    input:
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
+    output:
+        directory("indexes/biobloom/")
+    threads:
+        workflow.cores
+    shell:
+        "mkdir -p indexes/biobloom/human/ && "
+        "hocort index biobloom -i {input.genome} -o indexes/biobloom/human/"
+
 rule hocort_index_gen_minimap2:
     input:
-        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     output:
         directory("indexes/minimap2_{tech}/")
     threads:
@@ -849,7 +904,7 @@ rule hocort_index_gen_minimap2:
 
 rule hocort_index_gen:
     input:
-        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     output:
         directory("indexes/{mapper}/")
     wildcard_constraints:
@@ -937,7 +992,7 @@ rule generate_miseq_human_reads:
     threads:
         workflow.cores
     input:
-        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     output:
         directory("miseq_reads/{seed}/human/"),
         "miseq_reads/{seed}/human/miseq_human_reads_abundance.txt",
@@ -985,7 +1040,7 @@ rule generate_hiseq_human_reads:
     threads:
         workflow.cores
     input:
-        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     output:
         directory("hiseq_reads/{seed}/human/"),
         "hiseq_reads/{seed}/human/hiseq_human_reads_abundance.txt",
@@ -1034,7 +1089,7 @@ rule generate_nanopore_human_reads:
         workflow.cores
     input:
         "nanopore_reads/human/nanopore_training/",
-        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     output:
         directory("nanopore_reads/{seed}/human/"),
         R1="nanopore_reads/{seed}/human/nanopore_human_reads_R1.fastq.gz"
@@ -1070,7 +1125,7 @@ rule generate_nanopore_read_profile:
     threads:
         workflow.cores
     input:
-        genome="human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        genome="human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     output:
         directory("nanopore_reads/human/nanopore_training/"),
     shell:
@@ -1132,6 +1187,6 @@ rule download_human_genome:
     params:
         outdir="human_genome/"
     output:
-        "human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna"
+        "human_genome/GCF_000001405.40_GRCh38.p14_genomic.fna"
     shell:
-        "ncbi-genome-download -N -p 4 --flat-output -v -P -F fasta -o {params.outdir} -A GCF_000001405.39 all && gunzip -d human_genome/GCF_000001405.39_GRCh38.p13_genomic.fna.gz"
+        "ncbi-genome-download -N -p 4 --flat-output -v -P -F fasta -o {params.outdir} -A GCF_000001405.40 all && gunzip -d {params.outdir}GCF_000001405.40_GRCh38.p14_genomic.fna.gz"
