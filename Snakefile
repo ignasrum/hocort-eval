@@ -1,6 +1,6 @@
 SEEDS=["123", "124", "125", "126", "127", "128", "129"]
 UNPAIRED_TOOLS=["Minimap2_nanopore",
-                "BioBloom",
+                #"BioBloom",
                 "Kraken2Minimap2_nanopore",
                 "Kraken2"]
 PAIRED_TOOLS=["Seal",
@@ -947,7 +947,7 @@ rule simulate_oral_microbiome_unpaired:
     output:
         R1="{tech}_reads/{seed}/oral_microbiome_R1_unpaired.fastq.gz"
     shell:
-        "fastq-mixshuffle -1 {input.R1_human} {input.R1_other} -o {params.temp_R1} -a 50 50 -k 5000000 && "
+        "fastq-mixshuffle -1 {input.R1_human} {input.R1_other} -o {params.temp_R1} -a 50 50 -k 2500000 && "
         "gzip {params.temp_R1}"
 
 # mix reads to simulate gut microbiome (20% human/host, 80% other)
@@ -982,7 +982,7 @@ rule simulate_gut_microbiome_unpaired:
     output:
         R1="{tech}_reads/{seed}/gut_microbiome_R1_unpaired.fastq.gz"
     shell:
-        "fastq-mixshuffle -1 {input.R1_human} {input.R1_other} -o {params.temp_R1} -a 1 99 -k 5000000 && "
+        "fastq-mixshuffle -1 {input.R1_human} {input.R1_other} -o {params.temp_R1} -a 1 99 -k 2500000 && "
         "gzip {params.temp_R1}"
 
 rule generate_miseq_human_reads:
@@ -1095,9 +1095,11 @@ rule generate_nanopore_human_reads:
         R1="nanopore_reads/{seed}/human/nanopore_human_reads_R1.fastq.gz"
     shell:
         "mkdir -p nanopore_reads/{wildcards.seed}/human/ && "
-        "simulator.py genome -t {workflow.cores} -rg {input.genome} --seed {wildcards.seed} -n 3000000 -o {params.temp_R1} --fastq -b guppy --perfect -c nanopore_reads/human/nanopore_training/training && "
+        "simulator.py genome -t {workflow.cores} -rg {input.genome} --seed {wildcards.seed} -n 3000000 -o {params.temp_R1} --fastq -b guppy -c nanopore_reads/human/nanopore_training/training && "
         "fastq-rename -i {params.temp_R1}_aligned_reads.fastq -o {params.R1} -b human_ && "
         "rm {params.temp_R1}_aligned_reads.fastq && "
+        "rm {params.temp_R1}_aligned_error_profile && "
+        "rm {params.temp_R1}_unaligned_reads.fastq && "
         "gzip {params.R1}"
 
 rule generate_nanopore_other_reads:
@@ -1114,9 +1116,11 @@ rule generate_nanopore_other_reads:
         R1="nanopore_reads/{seed}/other/nanopore_other_reads_R1.fastq.gz"
     shell:
         "mkdir -p nanopore_reads/{wildcards.seed}/other/ && "
-        "simulator.py genome -t {workflow.cores} -rg {input.genome} --seed {wildcards.seed} -n 6000000 -o {params.temp_R1} --fastq -b guppy --perfect -c nanopore_reads/human/nanopore_training/training && "
+        "simulator.py genome -t {workflow.cores} -rg {input.genome} --seed {wildcards.seed} -n 6000000 -o {params.temp_R1} --fastq -b guppy -c nanopore_reads/human/nanopore_training/training && "
         "fastq-rename -i {params.temp_R1}_aligned_reads.fastq -o {params.R1} -b other_ && "
         "rm {params.temp_R1}_aligned_reads.fastq && "
+        "rm {params.temp_R1}_aligned_error_profile && "
+        "rm {params.temp_R1}_unaligned_reads.fastq && "
         "gzip {params.R1}"
 
 rule generate_nanopore_read_profile:
